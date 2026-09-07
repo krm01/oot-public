@@ -11208,6 +11208,39 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
 
         yawDiff = this->actor.shape.rot.y - (s16)(this->actor.wallYaw + 0x8000);
         sTouchedWallFlags = SurfaceType_GetWallFlags(&play->colCtx, this->actor.wallPoly, this->actor.wallBgId);
+
+        // This fixes the "started climbing a wall and then immediately fell off" bug.
+        // The main idea is if a climbing wall is detected, double-check that it will
+        // still be valid once climbing begins by doing a second raycast with a small
+        // margin to make sure it still hits a climbable poly. Then update the flags
+        // in sTouchedWallFlags again and proceed as normal.
+        if (sTouchedWallFlags & 8) {
+            f32 yawCos = Math_CosS(this->actor.wallYaw - (yawDiff / 2) + 0x8000);
+            f32 yawSin = Math_SinS(this->actor.wallYaw - (yawDiff / 2) + 0x8000);
+            Vec3f checkPosA = (Vec3f){
+                .x = this->actor.world.pos.x + (-20.0f * yawSin),
+                .y = this->actor.world.pos.y + 26.0f,
+                .z = this->actor.world.pos.z + (-20.0f * yawCos),
+            };
+            Vec3f checkPosB = (Vec3f){
+                .x = this->actor.world.pos.x + (50.0f * yawSin),
+                .y = this->actor.world.pos.y + 26.0f,
+                .z = this->actor.world.pos.z + (50.0f * yawCos),
+            };
+
+            s32 hitWall = BgCheck_EntityLineTest1(&play->colCtx, &checkPosA, &checkPosB, &sWallIntersectPos, &wallPoly, true, false,
+                                    false, true, &wallBgId);
+
+            if (hitWall) {
+                this->actor.wallPoly = wallPoly;
+                this->actor.wallBgId = wallBgId;
+                this->actor.wallYaw = Math_Atan2S(wallPoly->normal.z, wallPoly->normal.x);
+                yawDiff = this->actor.shape.rot.y - (s16)(this->actor.wallYaw + 0x8000);
+
+                sTouchedWallFlags = SurfaceType_GetWallFlags(&play->colCtx, this->actor.wallPoly, this->actor.wallBgId);
+            }
+        }
+
         sShapeYawToTouchedWall = ABS(yawDiff);
 
         yawDiff = this->yaw - (s16)(this->actor.wallYaw + 0x8000);
